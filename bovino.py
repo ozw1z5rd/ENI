@@ -14,7 +14,11 @@ from docopt import docopt
 import logging
 import pathlib
 import re
-logging.basicConfig(filename='log.log', level=logging.INFO)
+logging.basicConfig(
+    filename='bovino.log', 
+    filemode="w", 
+    level=logging.INFO, 
+    format='%(asctime)s :: %(levelname)s ->  %(message)s')
 
 class Bovino:
 
@@ -47,7 +51,7 @@ class Bovino:
 
 
 
-    def __init__(self, ftemplate=None, fmap="MAPPA.xlsx", freferto=None, fcompilato=None) -> None:
+    def __init__(self, ftemplate=None, fmap=None, freferto=None, fcompilato=None) -> None:
         
         if fcompilato is None:
             p = pathlib.Path(freferto)
@@ -55,14 +59,14 @@ class Bovino:
         else:
             self.fcompilato = fcompilato
             
-        self.map_file_name = fmap
+        self.map_file_name = fmap or "MAPPA.xlsx"
         print(self.map_file_name)
         self.log = logging.getLogger()
         self.ref_file_name = freferto or  "SAMPLES/Massivo_20220207-18694.xlsx"
         self.template_file_name = ftemplate or "SAMPLES/59326_Acque_TEMPLATE.xlsx"
         
         self.log.info("BOVINO - started")
-        self.log.info("Alessio Palma 2022, released under GNU/GPL see license.txt")
+        self.log.info("Alessio Palma 2022, released under GNU/GPL see COPYING.txt")
 
 
     def load_map(self) -> None:
@@ -296,7 +300,7 @@ class Bovino:
                         else:
                             self.log.error(f"L'unitá di misura {chem_unit} ==> {tchem_name} é presente. Le opzioni sono {current_unit_options_for_chem_name.keys()} ")
                             self.log.info("É tempo che l'utente scelga.")
-                            print(f"{tchem_name} [{chem_unit}] non é presente nel file della mappa. Ci sono queste opzioni:")
+                            print(f"Punto di campionamento {sample_point} : {tchem_name} [{chem_unit}] non é presente nel file della mappa. Ci sono queste opzioni:")
                             
                             inp = None 
                             while inp is None:
@@ -335,7 +339,7 @@ class Bovino:
                 self.template_data.cell(row=2, column=location_column).value = sample_date
                 self.template_data.cell(row=location_row, column=location_column).value = chem_value
 
-        self.template_xlsx_to_save.save(filename = "out.xlsx")
+        self.template_xlsx_to_save.save(filename = self.fcompilato)
 
 
     def start(self) -> None: 

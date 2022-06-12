@@ -52,7 +52,6 @@ class Bovino:
 
 
     def __init__(self, ftemplate=None, fmap=None, freferto=None, fcompilato=None) -> None:
-        
         if fcompilato is None:
             p = pathlib.Path(freferto)
             self.fcompilato = p.parent /  pathlib.Path( p.stem + "_compilato_" + p.suffix)
@@ -60,14 +59,17 @@ class Bovino:
             self.fcompilato = fcompilato
             
         self.map_file_name = fmap or "MAPPA.xlsx"
-        print(self.map_file_name)
         self.log = logging.getLogger()
         self.ref_file_name = freferto or  "SAMPLES/Massivo_20220207-18694.xlsx"
         self.template_file_name = ftemplate or "SAMPLES/59326_Acque_TEMPLATE.xlsx"
-        
-        self.log.info("BOVINO - started")
-        self.log.info("Alessio Palma 2022, released under GNU/GPL see COPYING.txt")
-
+        self.log.warning("-" * 80)
+        self.log.warning("BOVINO - started")
+        self.log.warning("Alessio Palma 2022, released under GNU/GPL see COPYING.txt")
+        self.log.warning("-" * 80)
+        self.log.info(f"File template : {self.template_file_name}")
+        self.log.info(f"File referto  : {self.ref_file_name}")
+        self.log.info(f"File mappa : {self.map_file_name}")
+        self.log.info(f"File compilato : {self.fcompilato}")
 
     def load_map(self) -> None:
         self.log.info(f"Sto aprendo il file della mappatura, {self.map_file_name}")
@@ -269,12 +271,12 @@ class Bovino:
         ### Start filling the template for real
         ###
         for d in self.referto_data:
+            self.log.info(d)
             self.log.info(f"Sto processando i dati del {d[0]} dal referto, punto di campionamento {d[1]}")
             sample_date = d[0]
             sample_point = d[1]
-            chemicals = d[2]
 
-            for chem_data in d[3:]:
+            for chem_data in d[2:]:
                 # ugly but working
                 chemical, chem_value = tuple(chem_data.items())[0]
                 matches = self.referto_unit_regex.match(chemical)

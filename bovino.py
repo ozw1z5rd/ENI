@@ -1,17 +1,28 @@
-from tkinter.messagebox import NO
+"""
+Bovino
+
+Usage:
+  bovino --template=<template_file> [--mapfile=<mapfile>]  --referto=<referto_file>  [ --filecompilato=<filecompilato> ] 
+
+"""
+
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl import load_workbook
 from datetime import datetime as _dt
-import docopt 
+from docopt import docopt 
 import logging
+import pathlib
+import re
 logging.basicConfig(filename='log.log', level=logging.INFO)
 
-class Secretary:
+class Bovino:
 
     log = None
     map_data_T1 = {}
     map_data_T2 = {}
+
+    referto_unit_regex = re.compile('(.*?)\s+\((\S*)\)$')
 
     # we need to copy some metadata in the template
     # their name 
@@ -19,7 +30,7 @@ class Secretary:
     # and their position inside the xlsx
     referto_fields_pos = {}
 
-    # actually the referto data as rows
+    # actually the referto data as rowsz
     referto_data = []
     # all the meta data names available inside the referto xlsx 
     # row #index ---> parameter name
@@ -28,11 +39,30 @@ class Secretary:
     # the loaded template as xlxs structure
     template_data = None
 
-    def __init__(self) -> None:
-        self.map_file_name = "MAPPA.xlsx"
+    # the workbook to save where the above data belongs 
+    template_xlsx_to_save = None 
+
+    # sample point name => column index 
+    sample_point_pointers = {}
+
+
+
+    def __init__(self, ftemplate=None, fmap="MAPPA.xlsx", freferto=None, fcompilato=None) -> None:
+        
+        if fcompilato is None:
+            p = pathlib.Path(freferto)
+            self.fcompilato = p.parent /  pathlib.Path( p.stem + "_compilato_" + p.suffix)
+        else:
+            self.fcompilato = fcompilato
+            
+        self.map_file_name = fmap
+        print(self.map_file_name)
         self.log = logging.getLogger()
-        self.ref_file_name = "SAMPLES/Massivo_20220207-18694.xlsx"
-        self.template_file_name = "SAMPLES/59326_Acque_TEMPLATE.xlsx"
+        self.ref_file_name = freferto or  "SAMPLES/Massivo_20220207-18694.xlsx"
+        self.template_file_name = ftemplate or "SAMPLES/59326_Acque_TEMPLATE.xlsx"
+        
+        self.log.info("BOVINO - started")
+        self.log.info("Alessio Palma 2022, released under GNU/GPL see license.txt")
 
 
     def load_map(self) -> None:
@@ -71,8 +101,8 @@ class Secretary:
                 self.map_data_T1[template_name] =  {  
                     template_unit : { 
                         "unit": template_unit, 
-                        "conversion" : conversion, 
-                        "priority" : priority 
+                        "conversion": conversion, 
+                        "priority": priority 
                     }  
                 }
 
@@ -118,6 +148,7 @@ class Secretary:
 
         wb = template.active
         self.template_data = wb
+        self.template_xlsx_to_save = template
 
         # Checks if the metadata we need are inside the template
         name_and_unit = [ ( row[0].value, row[2].value ) for row in wb.iter_rows()]
@@ -132,6 +163,8 @@ class Secretary:
                     self.log.error(f"Duplicato: {name_and_unit[i]}")
             raise RuntimeError("Ci sono delle colonne duplicate, cambiare nomi o unitá oppure cancellarle")
 
+        for c in wb.iter_cols():
+            self.sample_point_pointers[c[0].value] = c[0].column
 
     def process_refert_column0(self, col: any) -> None:
         """
@@ -139,7 +172,6 @@ class Secretary:
         are placed
         """
         self.log.info("Processo la colonna zero del referto, quella che contiene le label")
-        print(dir(col))
         nnull = 0 
         nrow = 0 
         limit = 1000000
@@ -190,8 +222,6 @@ class Secretary:
                     self.log.info(f"Colonna {ncol}, metadato {name} in riga {row} --> {value}")
                     data.append(value)
                 for rowindex, name in self.referto_meta_data.items():
-                    print(rowindex, name)
-
                     self.log.info(f"Adding {col[rowindex].value} value for {name}")
                     data.append({  name : col[rowindex].value })
                 self.referto_data.append(data)
@@ -220,10 +250,95 @@ class Secretary:
         if  nsample_points_found != len(sample_points_from_referto):
             raise RuntimeError("Il numero di punti di campionamento sul template non corrisponde a quelli del referto")
         
+        chemicals_pointers = {}
+        ### collects the row indexes for the chemicals
+        for row in self.template_data.iter_rows():
+            if row[0].value not in chemicals_pointers:
+                # name -> { unit : row } 
+                chemicals_pointers[row[0].value] = { row[2].value : row[0].row }
+            elif row[2].value in chemicals_pointers[row[0].value]:
+                raise RuntimeError(f"Ho trovato {row[0].value} con l'unitá {row[2].value} due volte, significa che ci sono righe duplicate nel template al netto del codice dell'analita, canellale o cambia (temporaneamente) il nome")
+            else:
+                chemicals_pointers[ row[2].value ] = row[0].row
+
+        ###
+        ### Start filling the template for real
+        ###
+        for d in self.referto_data:
+            self.log.info(f"Sto processando i dati del {d[0]} dal referto, punto di campionamento {d[1]}")
+            sample_date = d[0]
+            sample_point = d[1]
+            chemicals = d[2]
+
+            for chem_data in d[3:]:
+                # ugly but working
+                chemical, chem_value = tuple(chem_data.items())[0]
+                matches = self.referto_unit_regex.match(chemical)
+                # THIS CHEM_NAME is from the referto, we need to convert it into the template name 
+                chem_name = matches.group(1)
+                tchem_name = self.map_data_T2[chemical]
+
+                chem_unit = matches.group(2)
+                chem_unit = "µg/L" if chem_unit == "µg/l" else chem_unit
+                chem_unit = "mg/L" if chem_unit == "mg/l" else chem_unit
+                chem_unit = "g/L" if chem_unit == "g/l" else chem_unit
+
+                self.log.info(f"--> dati dal referto: {chem_name} con unitá {chem_unit}")
+                
+                if tchem_name not in chemicals_pointers:
+                    raise RuntimeError(f"Non ho trovato {chem_name} all'interno del template, aggiorna il file della mappa")
+                else:
+                    # we need to check unit matches
+                    if tchem_name in self.map_data_T1:
+                        current_unit_options_for_chem_name = self.map_data_T1[tchem_name]
+                        if chem_unit in current_unit_options_for_chem_name:
+                            self.log.info(f"L'unitá di misura {chem_unit} ==> {tchem_name} é presente. Tutto ok.")
+                        else:
+                            self.log.error(f"L'unitá di misura {chem_unit} ==> {tchem_name} é presente. Le opzioni sono {current_unit_options_for_chem_name.keys()} ")
+                            self.log.info("É tempo che l'utente scelga.")
+                            print(f"{tchem_name} [{chem_unit}] non é presente nel file della mappa. Ci sono queste opzioni:")
+                            
+                            inp = None 
+                            while inp is None:
+                                c = 0
+                                s = {}
+                                for unit_available, unit_data in current_unit_options_for_chem_name.items():
+                                    print(f" {c} ---> {unit_available} ----------------")
+                                    if unit_data.get('priority') is not None :
+                                        print(f"    priorità : {unit_data['priority']}")
+                                        print(f"    Convesione: {unit_data.get('conversion')}")
+                                    s[c] = unit_available
+                                    c += 1
+                                inp = input(f"Scegli una unitá sostitutiva (0 .. {c-1}) : ")
+                            
+                                if not 0 <= int(inp) < c:
+                                    inp = None
+                                    continue 
+                                else:
+                                    inp = int(inp)
+
+                                self.log.info(f"L'utente ha scelto:{s[inp]}.")
+                                a, b = str(chem_value).split(" ")
+                                b = float(b)
+                                if unit_data.get('conversion') is not None:
+                                    b = b * unit_data.get('conversion')
+                                    self.log.info(f"Valore dopo conversione di unitá : {b} ")
+                                chem_value = a +" "+str(b)
+                                chem_unit = s[inp]
+
+                        #print(chem_name, self.map_data_T1[tchem_name])
+
+                location_row = chemicals_pointers[tchem_name][chem_unit]
+                location_column = self.sample_point_pointers[sample_point]
+                self.log.info(f"{chem_name}-->{tchem_name} {chem_value} {chem_unit} row={location_row} column={location_column}")
+                
+                self.template_data.cell(row=2, column=location_column).value = sample_date
+                self.template_data.cell(row=location_row, column=location_column).value = chem_value
+
+        self.template_xlsx_to_save.save(filename = "out.xlsx")
 
 
-
-    def start(self) -> None:
+    def start(self) -> None: 
         self.load_map()
         self.load_template()
         self.load_referto()
@@ -231,21 +346,13 @@ class Secretary:
 
         
 
+opts = docopt(__doc__, version=1.0)
 
+ftemplate = opts["--template"] 
+fmap = opts["--mapfile"] 
+freferto = opts["--referto"]
+fcompilato = opts["--filecompilato"]
 
-a = Secretary()
-a.start()
-
-# wb = load_workbook(filename = './SAMPLES/59326_Acque_TEMPLATE.xlsx')
-# sheet_ranges = wb['2_59326']
-# print("Lettura dal primo file (a18) ")
-# print(sheet_ranges['A18'].value)
-
-
-# wb2 = load_workbook(filename = 'SAMPLES/Massivo_20220207-18694.xlsx')
-# sheet_ranges2 = wb2['Export']
-# print("Lettura dal 2nd file (a18) ")
-# print(sheet_ranges2['A18'].value)
-# print(sheet_ranges2['B1'].value)
-# print("Conversione data")
-# print( _dt.strptime(sheet_ranges2['B6'].value, "%d/%m/%Y" ) )
+print(ftemplate,fmap, freferto, fcompilato )
+bovino = Bovino(ftemplate=ftemplate, fmap=fmap, freferto=freferto, fcompilato=fcompilato)
+bovino.start()

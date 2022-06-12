@@ -332,7 +332,11 @@ class Bovino:
                                 chem_value = a +" "+str(b)
                                 chem_unit = s[inp]
 
-                        #print(chem_name, self.map_data_T1[tchem_name])
+                #
+                # BUG
+                #
+                # qui non chiede di fare la conversione di formato
+                # print(chemicals_pointers[tchem_name], tchem_name, chem_unit)
 
                 location_row = chemicals_pointers[tchem_name][chem_unit]
                 location_column = self.sample_point_pointers[sample_point]
@@ -359,6 +363,5 @@ fmap = opts["--mapfile"]
 freferto = opts["--referto"]
 fcompilato = opts["--filecompilato"]
 
-print(ftemplate,fmap, freferto, fcompilato )
 bovino = Bovino(ftemplate=ftemplate, fmap=fmap, freferto=freferto, fcompilato=fcompilato)
 bovino.start()

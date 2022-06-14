@@ -16,9 +16,8 @@ import pathlib
 import re
 logging.basicConfig(
     filename='bovino.log', 
-    filemode="w", 
     level=logging.INFO, 
-    format='%(asctime)s :: %(levelname)s ->  %(message)s')
+    format='%(asctime)s  {%(pathname)s:%(lineno)d} :: %(levelname)s ->  %(message)s')
 
 class Bovino:
 
@@ -245,6 +244,12 @@ class Bovino:
         nsample_points_found = 0
         # Codice punto is supposed to be at Row 0
         for col in self.template_data.iter_cols():
+            if col[0].value is None:
+                self.log.warning(f"Sto cercando i punti di campionamento ed ho trovato una colonna vuota")
+                self.log.warning(f"Colonna vuota: {col[0].column}")
+                self.log.warning(f"Termino la ricerca dei punti di campionamento.")
+                self.log.warning(f"Eliminare la colonna vuota potrebbe essere una buona idea.")
+                break
             if col[0].value not in sample_points_from_referto and len(col[0].value) > 7:
                 continue
             else:
@@ -294,28 +299,52 @@ class Bovino:
                 if tchem_name not in chemicals_pointers:
                     raise RuntimeError(f"Non ho trovato {chem_name} all'interno del template, aggiorna il file della mappa")
                 else:
-                    # we need to check unit matches
-                    if tchem_name in self.map_data_T1:
-                        current_unit_options_for_chem_name = self.map_data_T1[tchem_name]
-                        if chem_unit in current_unit_options_for_chem_name:
-                            self.log.info(f"L'unitá di misura {chem_unit} ==> {tchem_name} é presente. Tutto ok.")
+                    # the template chemical name from the map is inside the current template
+                    # this line collects all the conversion options for this chemical.
+                    current_unit_options_for_chem_name = self.map_data_T1.get(tchem_name)
+
+                if chem_unit not in chemicals_pointers[tchem_name]:
+                    required_unit = list(chemicals_pointers[tchem_name].keys())
+                    self.log.warning(f"{chem_unit} non trovato nel file template, che invece ha {required_unit}")
+                    self.log.warning(f"Provo a vedere se sono disponibili conversioni nel file di mappa da da {chem_unit} a {required_unit}")
+     
+                    if chem_unit in current_unit_options_for_chem_name:
+                        self.log.info(f"L'unitá di misura {chem_unit} ==> {required_unit} é presente nelle opzioni di conversione.")                    
+
+                        print(f"Punto di campionamento {sample_point} : {tchem_name} [{chem_unit}] non é presente nel file della mappa. Ci sono queste opzioni:")
+                        
+                        # quickly check if all the options have no conversioni
+                        #
+                        conversion_need_options = [ (unit_available, unit_data['conversion'], unit_data['priority']) for unit_available, unit_data in current_unit_options_for_chem_name.items() if unit_data.get('conversion') is not None]
+                        
+                        if len(conversion_need_options) == 0:
+                            self.log.info(f"Non ci sono delle unita che richiedono una conversione. Scelgo in base alla preferenza")                            
+                            conversion_need_options = [ (unit_available, unit_data['priority']) for unit_available, unit_data in current_unit_options_for_chem_name.items()]
+                            conversion_need_options.sort( key = lambda x : x[1])
+                            self.log.info(f"{conversion_need_options}")
+                            new_chem_unit = conversion_need_options[0][0]
+                            self.log.info(f"Converto {chem_unit} in {new_chem_unit}")
+                            chem_unit = new_chem_unit
                         else:
-                            self.log.error(f"L'unitá di misura {chem_unit} ==> {tchem_name} é presente. Le opzioni sono {current_unit_options_for_chem_name.keys()} ")
+                            self.log.info(f"Purtroppo ci sono delle unita che richiedono una conversione di formato {conversion_need_options}")
                             self.log.info("É tempo che l'utente scelga.")
-                            print(f"Punto di campionamento {sample_point} : {tchem_name} [{chem_unit}] non é presente nel file della mappa. Ci sono queste opzioni:")
-                            
+                        
                             inp = None 
                             while inp is None:
                                 c = 0
                                 s = {}
                                 for unit_available, unit_data in current_unit_options_for_chem_name.items():
+                                    if unit_available == chem_unit:
+                                        #what we need is not available, skip that option.
+                                        continue
+
                                     print(f" {c} ---> {unit_available} ----------------")
                                     if unit_data.get('priority') is not None :
                                         print(f"    priorità : {unit_data['priority']}")
                                         print(f"    Convesione: {unit_data.get('conversion')}")
                                     s[c] = unit_available
                                     c += 1
-                                inp = input(f"Scegli una unitá sostitutiva (0 .. {c-1}) : ")
+                                inp = input(f"Scegli un' unitá sostitutiva (0 .. {c-1}) : ")
                             
                                 if not 0 <= int(inp) < c:
                                     inp = None
@@ -332,13 +361,8 @@ class Bovino:
                                 chem_value = a +" "+str(b)
                                 chem_unit = s[inp]
 
-                #
-                # BUG
-                #
-                # qui non chiede di fare la conversione di formato
-                # print(chemicals_pointers[tchem_name], tchem_name, chem_unit)
 
-                location_row = chemicals_pointers[tchem_name][chem_unit]
+                location_row = chemicals_pointers[tchem_name].get(chem_unit)
                 location_column = self.sample_point_pointers[sample_point]
                 self.log.info(f"{chem_name}-->{tchem_name} {chem_value} {chem_unit} row={location_row} column={location_column}")
                 
@@ -348,15 +372,28 @@ class Bovino:
         self.template_xlsx_to_save.save(filename = self.fcompilato)
 
 
-    def start(self) -> None: 
+    def banner(self,) -> None:
+        print("""
+        \|/          (__)    
+             `\------(oo)           BOVINOMATIC
+               ||    (__)
+               ||w--||     \|/
+        \|/
+  ______________________________________________________________________      
+  Avviarlo usando WindowsPowerShell app.
+  Se necessario attivare l'ambiente con: .\\venv\\Scripts\\Activate.ps1
+        """)
+
+    def start(self) -> None:   
+        self.banner()
         self.load_map()
         self.load_template()
         self.load_referto()
         self.fill_template()
 
         
-
-opts = docopt(__doc__, version=1.0)
+cmdline = "--template SAMPLES\\template_unita_differente.xlsx --referto .\\SAMPLES\\Massivo_20220207-18694.xlsx".split(" ")
+opts = docopt(__doc__, argv=cmdline, version=1.0)
 
 ftemplate = opts["--template"] 
 fmap = opts["--mapfile"] 

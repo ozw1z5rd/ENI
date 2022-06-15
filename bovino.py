@@ -238,6 +238,9 @@ class Bovino:
 
 
     def fill_template(self) -> None:
+
+        # saves the user options for specific chemicals and units
+        always = {}
         sample_points_from_referto = [ x[1] for x in self.referto_data ]
         self.log.info("Verifico che il template abbia tutti i punti di campionamento che sono nel referto")
         
@@ -337,38 +340,55 @@ class Bovino:
                                     if unit_available == chem_unit:
                                         #what we need is not available, skip that option.
                                         continue
-
+                                    if unit_available not in required_unit:
+                                        # this option is not available in the current template, skip it..
+                                        continue
                                     print(f" {c} ---> {unit_available} ----------------")
                                     if unit_data.get('priority') is not None :
                                         print(f"    priorità : {unit_data['priority']}")
                                         print(f"    Convesione: {unit_data.get('conversion')}")
                                     s[c] = unit_available
                                     c += 1
-                                inp = input(f"Scegli un' unitá sostitutiva (0 .. {c-1}) : ")
-                            
-                                if not 0 <= int(inp) < c:
-                                    inp = None
-                                    continue 
-                                else:
-                                    inp = int(inp)
 
-                                self.log.info(f"L'utente ha scelto:{s[inp]}.")
+                                if tchem_name in always:
+                                    if chem_unit in always[tchem_name]:
+                                        inp = always[tchem_name].get(chem_unit)
+                                if inp is not None:
+                                    self.log.info(f"per {tchem_name}, {chem_unit}, l'utente ha precedentemente scelto l'opzione {s[inp]}")
+                                else:
+                                    inp = input(f"Scegli unitá sostitutiva (0 .. {c-1}) : ")
+                            
+                                    if not 0 <= int(inp) < c:
+                                        inp = None
+                                        continue 
+                                    else:
+                                        inp = int(inp)
+
+                                    self.log.info(f"L'utente ha scelto:{s[inp]}.")
+                                    forever = None
+                                    while forever not in ('s', 'n'):
+                                        forever = input("Applico per tutti i restanti punti di campionamento [s/n]  ? ")
+                                        if forever == "s":
+                                             self.log.info(f"Imposto opzione {inp} per {tchem_name} {chem_unit} valida per tutti i restanti punti di campionamento") 
+                                             # registra la scelta fatta 
+                                             always[tchem_name] = { chem_unit : inp }
                                 a, b = str(chem_value).split(" ")
                                 b = float(b)
-                                if unit_data.get('conversion') is not None:
-                                    b = b * unit_data.get('conversion')
+                                chem_unit = s[inp]
+                                ratio = current_unit_options_for_chem_name[chem_unit].get('conversion')
+                                if ratio is not None:
+                                    b = b * ratio
                                     self.log.info(f"Valore dopo conversione di unitá : {b} ")
                                 chem_value = a +" "+str(b)
-                                chem_unit = s[inp]
 
 
                 location_row = chemicals_pointers[tchem_name].get(chem_unit)
                 location_column = self.sample_point_pointers[sample_point]
                 self.log.info(f"{chem_name}-->{tchem_name} {chem_value} {chem_unit} row={location_row} column={location_column}")
-                
+                                
                 self.template_data.cell(row=2, column=location_column).value = sample_date
                 self.template_data.cell(row=location_row, column=location_column).value = chem_value
-
+        self.log.info(f"Writing the file as {self.fcompilato}")
         self.template_xlsx_to_save.save(filename = self.fcompilato)
 
 
@@ -384,15 +404,27 @@ class Bovino:
   Se necessario attivare l'ambiente con: .\\venv\\Scripts\\Activate.ps1
         """)
 
+
+    def bye(self):
+        self.log.info("Programma terminato")
+        print(f"""
+ ===>   Risultati scritti in {self.fcompilato}
+
+Mouw..
+
+""")        
+
     def start(self) -> None:   
         self.banner()
         self.load_map()
         self.load_template()
         self.load_referto()
         self.fill_template()
+        self.bye()
 
         
-cmdline = "--template SAMPLES\\template_unita_differente.xlsx --referto .\\SAMPLES\\Massivo_20220207-18694.xlsx".split(" ")
+cmdline = None #"--template SAMPLES\\template_unita_differente.xlsx --referto .\\SAMPLES\\Massivo_20220207-18694.xlsx".split(" ")
+
 opts = docopt(__doc__, argv=cmdline, version=1.0)
 
 ftemplate = opts["--template"] 

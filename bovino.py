@@ -314,7 +314,7 @@ class Bovino:
                     if chem_unit in current_unit_options_for_chem_name:
                         self.log.info(f"L'unitá di misura {chem_unit} ==> {required_unit} é presente nelle opzioni di conversione.")                    
 
-                        print(f"Punto di campionamento {sample_point} : {tchem_name} [{chem_unit}] non é presente nel file della mappa. Ci sono queste opzioni:")
+                        print(f"Punto di campionamento {sample_point} : {tchem_name} [{chem_unit}] non é presente nel file del template . Ci sono queste opzioni:")
                         
                         # quickly check if all the options have no conversioni
                         #
@@ -333,6 +333,7 @@ class Bovino:
                             self.log.info("É tempo che l'utente scelga.")
                         
                             inp = None 
+                            print( current_unit_options_for_chem_name ) 
                             while inp is None:
                                 c = 0
                                 s = {}
@@ -349,6 +350,9 @@ class Bovino:
                                         print(f"    Convesione: {unit_data.get('conversion')}")
                                     s[c] = unit_available
                                     c += 1
+                                if c == 0:
+                                    print("Nessuna conversione disponibile del file della Mappa. Fine programma")
+                                    raise RuntimeError(f"Il file template per {tchem_name} NON usa {chem_unit}, ma nel file di mappa non ci sono altre opzioni")
 
                                 if tchem_name in always:
                                     if chem_unit in always[tchem_name]:
